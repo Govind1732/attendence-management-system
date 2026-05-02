@@ -1,40 +1,49 @@
-from fastapi import APIRouter, UploadFile, File
-from database import SessionLocal
-from models import Attendance, User
+from fastapi import APIRouter, UploadFile, File, Depends
+from sqlalchemy.orm import Session
+from database import get_db
+from models import User, Attendance
+from ai.train import get_embedding
+from ai.recognize import find_match
 from datetime import datetime
-import cv2
-from insightface.app import FaceAnalysis
-from ai.recognize import recognize_face
+import os
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 
-face_app = FaceAnalysis()
-face_app.prepare(ctx_id=0)
-
-@router.post("/mark")
-async def mark_attendance(file: UploadFile = File(...)):
-    db = SessionLocal()
-
+@router.post("/recognize")
+async def recognize(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    os.makedirs("temp", exist_ok=True)
     file_path = f"temp/{file.filename}"
+
     with open(file_path, "wb") as f:
         f.write(await file.read())
 
-    img = cv2.imread(file_path)
-    faces = face_app.get(img)
+    embedding = get_embedding(file_path)
 
-    if not faces:
+    if embedding is None:
         return {"error": "No face detected"}
 
-    embedding = faces[0].embedding
-
     users = db.query(User).all()
-
-    matched_user = recognize_face(embedding, users)
+    matched_user = find_match(embedding, users)
 
     if not matched_user:
         return {"message": "Unknown user"}
 
     now = datetime.now()
+
+    # 🚨 Prevent duplicate attendance
+    existing = db.query(Attendance).filter(
+        Attendance.user_id == matched_user.id,
+        Attendance.date == now.date()
+    ).first()
+
+    if existing:
+        return {
+            "message": "Already marked today",
+            "user": matched_user.name
+        }
 
     attendance = Attendance(
         user_id=matched_user.id,
@@ -46,4 +55,7 @@ async def mark_attendance(file: UploadFile = File(...)):
     db.add(attendance)
     db.commit()
 
-    return {"message": f"Attendance marked for {matched_user.name}"}
+    return {
+        "message": "Attendance marked",
+        "user": matched_user.name
+    }

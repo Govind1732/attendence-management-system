@@ -6,8 +6,8 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100))
-    email = Column(String(100))
-    embedding = Column(Text)  # store vector as string
+    email = Column(String(100), unique=True)
+    embedding = Column(Text)  # JSON string
 
 
 class Attendance(Base):

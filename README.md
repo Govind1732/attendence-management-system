@@ -1,0 +1,4 @@
+- Project overview
+- Setup steps (frontend + backend)
+- Screenshots
+- API endpoints
